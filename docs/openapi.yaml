@@ -290,6 +290,65 @@ tags:
     description: Webhooks endpoints (generated route coverage)
 
 paths:
+  /v1/decisions:
+    post:
+      tags: [Responses]
+      summary: Create a native OpenAI decision
+      description: Uses the stored OpenAI API-key connection. Native input and questions are forwarded without System One translation. Requires an OmniRoute client key; an 8 MiB request limit and 30 second upstream timeout apply.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, input, questions]
+              properties:
+                model:
+                  type: string
+                  enum: [gpt-6-luna, openai/gpt-6-luna]
+                input:
+                  oneOf:
+                    - type: string
+                    - type: array
+                      items:
+                        type: object
+                questions:
+                  type: array
+                  minItems: 1
+                  maxItems: 400
+                  items:
+                    type: object
+                    required: [type, instructions]
+                    properties:
+                      type:
+                        type: string
+                        enum: [predicate, choice, score]
+                      name:
+                        type: string
+                      instructions: {}
+                    additionalProperties: true
+              additionalProperties: true
+      responses:
+        "200":
+          description: Native OpenAI answers array and token usage; refusal answers remain unchanged.
+        "400":
+          description: Invalid native request or upstream validation failure.
+        "401":
+          description: Missing or invalid client key, or upstream authentication failure.
+        "403":
+          description: Client-key model, endpoint or connection policy denies access.
+        "413":
+          description: Request exceeds 8 MiB.
+        "429":
+          description: Client or upstream rate limit.
+        "502":
+          description: Upstream transport or response failure.
+        "503":
+          description: No eligible OpenAI API-key connection.
+        "504":
+          description: OpenAI Decisions timed out.
   /api/v1/session-leases:
     post:
       tags:

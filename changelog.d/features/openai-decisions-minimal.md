@@ -1,0 +1,1 @@
+Native OpenAI-only `POST /v1/decisions` with existing OpenAI credentials, scoped client-key admission, bounded non-retrying transport, usage accounting and a small manual test page under Endpoints. No System One translation or combo-routing changes.
