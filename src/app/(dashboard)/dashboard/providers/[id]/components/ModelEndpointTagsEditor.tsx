@@ -9,6 +9,7 @@ import {
 const OPTIONS: ModelSupportedEndpoint[] = [
   "chat",
   "responses",
+  "decisions",
   "embeddings",
   "rerank",
   "images",

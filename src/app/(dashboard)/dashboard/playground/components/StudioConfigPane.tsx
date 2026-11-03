@@ -36,6 +36,7 @@ export interface ConfigState {
 export type ConfigStateSetter = Dispatch<SetStateAction<ConfigState>>;
 
 interface StudioConfigPaneProps {
+  onSelectDecisions?: () => void;
   configState: ConfigState;
   setConfigState: ConfigStateSetter;
 }
@@ -62,7 +63,11 @@ const ENDPOINT_OPTIONS: Array<{ value: PlaygroundEndpoint; labelKey: string }> =
  *   - SLOT_PRESETS: PresetPicker will be injected here
  *   - SLOT_IMPROVE: ImprovePromptButton will be injected here
  */
-export default function StudioConfigPane({ configState, setConfigState }: StudioConfigPaneProps) {
+export default function StudioConfigPane({
+  configState,
+  setConfigState,
+  onSelectDecisions,
+}: StudioConfigPaneProps) {
   const t = useTranslations("common");
   const tp = useTranslations("playground");
   const [collapsed, setCollapsed] = useState(false);
@@ -187,9 +192,15 @@ export default function StudioConfigPane({ configState, setConfigState }: Studio
           </label>
           <select
             value={configState.endpoint}
-            onChange={(e) => update("endpoint", e.target.value as PlaygroundEndpoint)}
+            onChange={(e) =>
+              e.target.value === "decisions"
+                ? onSelectDecisions?.()
+                : update("endpoint", e.target.value as PlaygroundEndpoint)
+            }
+            aria-label="Endpoint"
             className="w-full text-xs bg-surface border border-border rounded px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary text-text-main"
           >
+            {onSelectDecisions && <option value="decisions">Decisions - /v1/decisions</option>}
             {ENDPOINT_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {tp(`endpointOptions.${opt.labelKey}`)} — {endpointToPath(opt.value)}

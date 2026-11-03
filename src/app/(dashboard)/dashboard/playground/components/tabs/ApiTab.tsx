@@ -12,6 +12,8 @@ import { ALIAS_TO_ID } from "@/shared/constants/providers";
 import { pickDisplayValue } from "@/shared/utils/maskEmail";
 import useEmailPrivacyStore from "@/store/emailPrivacyStore";
 import dynamic from "next/dynamic";
+import { withDashboardCsrfHeader } from "@/shared/utils/dashboardCsrf";
+import { DECISIONS_EXAMPLE, replaceDecisionModel } from "@/lib/playground/decisionsExample";
 import {
   PLAYGROUND_IMAGE_STREAM_HEADER,
   restorePlaygroundImageResponse,
@@ -43,7 +45,16 @@ interface ConnectionOption {
   authType: string;
 }
 
+interface DecisionModelChoice {
+  id: string;
+  name: string;
+  provider: string;
+  providerLabel: string;
+  connections: Array<{ id: string; name: string }>;
+}
+
 const DEFAULT_BODIES: Record<string, object> = {
+  decisions: DECISIONS_EXAMPLE,
   chat: {
     model: "",
     messages: [{ role: "user", content: "Hello! Say hi in one sentence." }],
@@ -104,6 +115,7 @@ const DEFAULT_BODIES: Record<string, object> = {
 };
 
 const ENDPOINT_PATHS: Record<string, string> = {
+  decisions: "/v1/decisions",
   chat: "/v1/chat/completions",
   responses: "/v1/responses",
   images: "/v1/images/generations",
@@ -152,6 +164,8 @@ async function fileToBase64(file: File): Promise<string> {
 interface ApiTabProps {
   // configState is received but ApiTab manages its own JSON state (D14)
   configState?: unknown;
+  initialEndpoint?: string;
+  onEndpointChange?: (endpoint: string) => void;
 }
 
 /**
@@ -159,12 +173,13 @@ interface ApiTabProps {
  * Receives configState prop but manages its own internal JSON state
  * (the raw API tab has its own raw JSON editor, independent of the config pane).
  */
-export default function ApiTab(_props: ApiTabProps) {
+export default function ApiTab({ initialEndpoint = "chat", onEndpointChange }: ApiTabProps) {
   const t = useTranslations("playground");
 
   const endpointOptions = useMemo(
     () => [
       { value: "chat", label: t("endpointOptions.chat") },
+      { value: "decisions", label: "Decisions - /v1/decisions" },
       { value: "responses", label: t("endpointOptions.responses") },
       { value: "images", label: t("endpointOptions.images") },
       { value: "embeddings", label: t("endpointOptions.embeddings") },
@@ -178,14 +193,25 @@ export default function ApiTab(_props: ApiTabProps) {
     [t]
   );
 
+  const startingEndpoint = Object.hasOwn(ENDPOINT_PATHS, initialEndpoint)
+    ? initialEndpoint
+    : "chat";
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [providers, setProviders] = useState<ProviderOption[]>([]);
   const [allConnections, setAllConnections] = useState<ConnectionOption[]>([]);
   const [selectedProvider, setSelectedProvider] = useState("");
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedConnection, setSelectedConnection] = useState("");
-  const [selectedEndpoint, setSelectedEndpoint] = useState("chat");
-  const [requestBody, setRequestBody] = useState("");
+  const [selectedEndpoint, setSelectedEndpoint] = useState(startingEndpoint);
+  const endpointRef = useRef(startingEndpoint);
+  const [decisionModels, setDecisionModels] = useState<DecisionModelChoice[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(startingEndpoint === "decisions");
+  const [catalogError, setCatalogError] = useState("");
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  const [routeReceipt, setRouteReceipt] = useState("");
+  const [requestBody, setRequestBody] = useState(() =>
+    JSON.stringify(DEFAULT_BODIES[startingEndpoint], null, 2)
+  );
   const [responseBody, setResponseBody] = useState("");
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [imageData, setImageData] = useState<PlaygroundImageResult[] | null>(null);
@@ -198,6 +224,7 @@ export default function ApiTab(_props: ApiTabProps) {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadedImages, setUploadedImages] = useState<string[]>([]);
 
+  const isDecisionsEndpoint = selectedEndpoint === "decisions";
   const isSearchEndpoint = selectedEndpoint === "search";
   const isTranscriptionEndpoint = selectedEndpoint === "transcription";
   const isChatEndpoint = selectedEndpoint === "chat";
@@ -212,11 +239,44 @@ export default function ApiTab(_props: ApiTabProps) {
     };
   }, [audioUrl]);
 
-  const providerConnections = allConnections.filter((c) => {
-    if (!selectedProvider) return false;
-    const resolvedProvider = ALIAS_TO_ID[selectedProvider] || selectedProvider;
-    return c.provider === resolvedProvider || c.provider === selectedProvider;
-  });
+  const providerConnections = isDecisionsEndpoint
+    ? (decisionModels.find((m) => m.id === selectedModel)?.connections ?? []).map((c) => ({
+        ...c,
+        email: undefined,
+      }))
+    : allConnections.filter((c) => {
+        if (!selectedProvider) return false;
+        const resolvedProvider = ALIAS_TO_ID[selectedProvider] || selectedProvider;
+        return c.provider === resolvedProvider || c.provider === selectedProvider;
+      });
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (!isDecisionsEndpoint) return;
+    const controller = new AbortController();
+    fetch("/api/playground/decisions/models", {
+      credentials: "same-origin",
+      cache: "no-store",
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        if (!response.ok)
+          throw new Error("Could not load Decisions models. Sign in or refresh and try again.");
+        const result = (await response.json()) as { data?: DecisionModelChoice[] };
+        setDecisionModels(result.data ?? []);
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted)
+          setCatalogError(
+            error instanceof Error ? error.message : "Could not load Decisions models."
+          );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setCatalogLoading(false);
+      });
+    return () => controller.abort();
+  }, [isDecisionsEndpoint, catalogRevision]);
 
   useEffect(() => {
     fetch("/v1/models")
@@ -235,7 +295,7 @@ export default function ApiTab(_props: ApiTabProps) {
           .sort()
           .map((p) => ({ value: p, label: p }));
         setProviders(providerOpts);
-        if (providerOpts.length > 0) {
+        if (providerOpts.length > 0 && endpointRef.current !== "decisions") {
           setSelectedProvider(providerOpts[0].value);
         }
       })
@@ -261,18 +321,31 @@ export default function ApiTab(_props: ApiTabProps) {
       .catch(() => {});
   }, []);
 
-  const filteredModels = (() => {
-    const seen = new Set<string>();
-    const out: Array<{ value: string; label: string }> = [];
-    for (const m of models) {
-      if (typeof m?.id !== "string") continue;
-      if (selectedProvider && !m.id.startsWith(selectedProvider + "/")) continue;
-      if (seen.has(m.id)) continue;
-      seen.add(m.id);
-      out.push({ value: m.id, label: m.id });
-    }
-    return out;
-  })();
+  const decisionProviders = Array.from(
+    new Map(
+      decisionModels.map((m) => [m.provider, { value: m.provider, label: m.providerLabel }])
+    ).values()
+  );
+  const providerOptions = isDecisionsEndpoint
+    ? [{ value: "", label: "Select provider" }, ...decisionProviders]
+    : providers;
+  const decisionModelOptions = decisionModels
+    .filter((m) => m.provider === selectedProvider)
+    .map((m) => ({ value: m.id, label: `${m.name} - ${m.id}` }));
+  const filteredModels = isDecisionsEndpoint
+    ? [{ value: "", label: "Select model" }, ...decisionModelOptions]
+    : (() => {
+        const seen = new Set<string>();
+        const out: Array<{ value: string; label: string }> = [];
+        for (const m of models) {
+          if (typeof m?.id !== "string") continue;
+          if (selectedProvider && !m.id.startsWith(selectedProvider + "/")) continue;
+          if (seen.has(m.id)) continue;
+          seen.add(m.id);
+          out.push({ value: m.id, label: m.id });
+        }
+        return out;
+      })();
 
   const generateDefaultBody = (endpoint: string, model: string) => {
     const template = { ...DEFAULT_BODIES[endpoint] };
@@ -285,6 +358,13 @@ export default function ApiTab(_props: ApiTabProps) {
   const handleProviderChange = (newProvider: string) => {
     setSelectedProvider(newProvider);
     setSelectedConnection("");
+    if (isDecisionsEndpoint) {
+      const first = decisionModels.find((m) => m.provider === newProvider)?.id ?? "";
+      setSelectedModel(first);
+      setRequestBody((current) => replaceDecisionModel(current, first));
+      clearResults();
+      return;
+    }
     const providerModels = models
       .filter(
         (m) => typeof m?.id === "string" && (!newProvider || m.id.startsWith(newProvider + "/"))
@@ -298,13 +378,29 @@ export default function ApiTab(_props: ApiTabProps) {
 
   const handleModelChange = (newModel: string) => {
     setSelectedModel(newModel);
-    setRequestBody(generateDefaultBody(selectedEndpoint, newModel));
+    if (isDecisionsEndpoint) {
+      setSelectedConnection("");
+      setRequestBody((current) => replaceDecisionModel(current, newModel));
+    } else setRequestBody(generateDefaultBody(selectedEndpoint, newModel));
     clearResults();
   };
 
   const handleEndpointChange = (newEndpoint: string) => {
+    abortRef.current?.abort();
+    if (newEndpoint === "decisions") {
+      setCatalogLoading(true);
+      setCatalogError("");
+    }
     setSelectedEndpoint(newEndpoint);
-    setRequestBody(generateDefaultBody(newEndpoint, selectedModel));
+    endpointRef.current = newEndpoint;
+    const nextModel = newEndpoint === "decisions" || isDecisionsEndpoint ? "" : selectedModel;
+    if (newEndpoint === "decisions" || isDecisionsEndpoint) {
+      setSelectedProvider("");
+      setSelectedModel("");
+      setSelectedConnection("");
+    }
+    setRequestBody(generateDefaultBody(newEndpoint, nextModel));
+    onEndpointChange?.(newEndpoint);
     setUploadedFile(null);
     setUploadedImages([]);
     clearResults();
@@ -312,6 +408,7 @@ export default function ApiTab(_props: ApiTabProps) {
 
   const clearResults = useCallback(() => {
     setResponseBody("");
+    setRouteReceipt("");
     setResponseStatus(null);
     setResponseDuration(null);
     setAudioUrl(null);
@@ -397,10 +494,19 @@ export default function ApiTab(_props: ApiTabProps) {
         if (selectedConnection) {
           fetchHeaders["X-OmniRoute-Connection"] = selectedConnection;
         }
+        if (
+          isDecisionsEndpoint &&
+          (parsed.model !== selectedModel || !decisionModels.some((m) => m.id === selectedModel))
+        ) {
+          throw new Error(
+            "Select a supported Decisions provider/model; the JSON model must match the selector."
+          );
+        }
         if (isImageEndpoint) fetchHeaders[PLAYGROUND_IMAGE_STREAM_HEADER] = "1";
-        res = await fetch(`/api${path}`, {
+        res = await fetch(isDecisionsEndpoint ? "/api/playground/decisions" : `/api${path}`, {
           method: "POST",
-          headers: fetchHeaders,
+          headers: isDecisionsEndpoint ? await withDashboardCsrfHeader(fetchHeaders) : fetchHeaders,
+          credentials: "same-origin",
           body: JSON.stringify(parsed),
           signal: controller.signal,
         });
@@ -411,6 +517,16 @@ export default function ApiTab(_props: ApiTabProps) {
       }
 
       setResponseStatus(res.status);
+      if (isDecisionsEndpoint)
+        setRouteReceipt(
+          [
+            res.headers.get("x-omniroute-provider"),
+            res.headers.get("x-omniroute-model"),
+            res.headers.get("x-omniroute-connection-id") ? "Selected account confirmed" : "",
+          ]
+            .filter(Boolean)
+            .join(" | ")
+        );
       setResponseDuration(Date.now() - startTime);
 
       const contentType = res.headers.get("content-type") || "";
@@ -456,6 +572,9 @@ export default function ApiTab(_props: ApiTabProps) {
     setLoading(false);
   }, [
     requestBody,
+    isDecisionsEndpoint,
+    selectedModel,
+    decisionModels,
     isTranscriptionEndpoint,
     selectedEndpoint,
     uploadedFile,
@@ -483,26 +602,33 @@ export default function ApiTab(_props: ApiTabProps) {
   const emailsVisible = useEmailPrivacyStore((s) => s.emailsVisible);
 
   return (
-    <div className="space-y-5 p-4 overflow-y-auto">
+    <div className="space-y-5 p-4 overflow-y-auto min-w-0 h-full">
       {/* Info Banner */}
       <div className="flex items-start gap-3 px-4 py-3 rounded-lg bg-primary/5 border border-primary/10 text-sm text-text-muted">
         <span className="material-symbols-outlined text-primary text-[20px] mt-0.5 shrink-0">
           science
         </span>
         <div>
-          <p className="font-medium text-text-main mb-0.5">{t("title")}</p>
-          <p>{t("description")}</p>
+          <p className="font-medium text-text-main mb-0.5">
+            {isDecisionsEndpoint ? "Decisions" : t("title")}
+          </p>
+          <p>
+            {isDecisionsEndpoint
+              ? "Choose an endpoint, provider, model and saved account. Your signed-in session authorizes this Playground; external API calls still require an OmniRoute key."
+              : t("description")}
+          </p>
         </div>
       </div>
 
       {/* Controls */}
       <Card>
-        <div className="p-4 flex flex-col sm:flex-row items-end gap-4">
-          <div className="flex-1 w-full">
+        <div className="p-4 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 items-end gap-4">
+          <div className="flex-1 min-w-0 w-full">
             <label className="block text-xs font-medium text-text-muted mb-1.5 uppercase tracking-wider">
               {t("endpoint")}
             </label>
             <Select
+              aria-label="Endpoint"
               value={selectedEndpoint}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
                 handleEndpointChange(e.target.value)
@@ -513,27 +639,33 @@ export default function ApiTab(_props: ApiTabProps) {
           </div>
 
           {!isSearchEndpoint && (
-            <div className="flex-1 w-full">
+            <div className="flex-1 min-w-0 w-full">
               <label className="block text-xs font-medium text-text-muted mb-1.5 uppercase tracking-wider">
                 {t("provider")}
               </label>
               <Select
+                aria-label="Provider"
+                placeholder={isDecisionsEndpoint ? "" : undefined}
+                disabled={loading || (isDecisionsEndpoint && catalogLoading)}
                 value={selectedProvider}
                 onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
                   handleProviderChange(e.target.value)
                 }
-                options={providers}
+                options={providerOptions}
                 className="w-full"
               />
             </div>
           )}
 
           {!isSearchEndpoint && (
-            <div className="flex-1 w-full">
+            <div className="flex-1 min-w-0 w-full">
               <label className="block text-xs font-medium text-text-muted mb-1.5 uppercase tracking-wider">
                 {t("model")}
               </label>
               <Select
+                aria-label="Model"
+                placeholder={isDecisionsEndpoint ? "" : undefined}
+                disabled={loading || (isDecisionsEndpoint && (!selectedProvider || catalogLoading))}
                 value={selectedModel}
                 onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
                   handleModelChange(e.target.value)
@@ -545,15 +677,19 @@ export default function ApiTab(_props: ApiTabProps) {
           )}
 
           {!isSearchEndpoint && (
-            <div className="flex-1 w-full">
+            <div className="flex-1 min-w-0 w-full">
               <label className="block text-xs font-medium text-text-muted mb-1.5 uppercase tracking-wider">
                 {t("accountKey")}
               </label>
               <Select
+                aria-label="Account"
+                placeholder=""
+                disabled={loading || (isDecisionsEndpoint && !selectedModel)}
                 value={selectedConnection}
-                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                  setSelectedConnection(e.target.value)
-                }
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                  setSelectedConnection(e.target.value);
+                  clearResults();
+                }}
                 options={[
                   {
                     value: "",
@@ -583,6 +719,10 @@ export default function ApiTab(_props: ApiTabProps) {
                   icon="send"
                   onClick={() => void handleSend()}
                   disabled={
+                    (isDecisionsEndpoint &&
+                      (catalogLoading ||
+                        !!catalogError ||
+                        !decisionModelOptions.some((m) => m.value === selectedModel))) ||
                     (!requestBody.trim() && !isTranscriptionEndpoint) ||
                     (!selectedModel && !isTranscriptionEndpoint)
                   }
@@ -594,6 +734,47 @@ export default function ApiTab(_props: ApiTabProps) {
           )}
         </div>
       </Card>
+
+      {isDecisionsEndpoint && (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-text-muted" role="status">
+          <p className="min-w-0 flex-1">
+            {catalogError ||
+              (catalogLoading
+                ? "Loading configured Decisions models..."
+                : decisionModels.length
+                  ? "Only native Decisions-capable models are listed. Chat-only and Codex OAuth models are not compatible. Selecting a model never falls back to OpenAI."
+                  : "No eligible Decisions models. Add an active API-key account and a native Decisions-capable model in Providers.")}
+          </p>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              setCatalogLoading(true);
+              setCatalogError("");
+              setCatalogRevision((v) => v + 1);
+            }}
+            disabled={catalogLoading || loading}
+          >
+            Refresh models
+          </Button>
+        </div>
+      )}
+
+      {isDecisionsEndpoint && selectedModel && (
+        <Button
+          variant="secondary"
+          onClick={() => {
+            const quote = (value: string) => "'" + value.replaceAll("'", "'\"'\"'") + "'";
+            const pin = selectedConnection
+              ? ` -H ${quote("X-OmniRoute-Connection: " + selectedConnection)}`
+              : "";
+            void handleCopy(
+              `curl ${quote(window.location.origin + "/v1/decisions")} -H 'Authorization: Bearer <OMNIROUTE_API_KEY>' -H 'Content-Type: application/json'${pin} --data-raw ${quote(requestBody)}`
+            );
+          }}
+        >
+          Copy cURL
+        </Button>
+      )}
 
       {/* File Upload Zone */}
       {(isTranscriptionEndpoint || supportsVision) && (
@@ -731,12 +912,30 @@ export default function ApiTab(_props: ApiTabProps) {
                 {t("transcriptionHint")}
               </p>
             )}
-            <div className="border border-border rounded-lg overflow-hidden">
+            <div
+              className="border border-border rounded-lg overflow-hidden"
+              data-testid="api-request-editor"
+            >
               <Editor
                 height="400px"
                 defaultLanguage="json"
                 value={requestBody}
-                onChange={(value: string | undefined) => setRequestBody(value || "")}
+                onChange={(value: string | undefined) => {
+                  setRequestBody(value || "");
+                  if (isDecisionsEndpoint) {
+                    try {
+                      const draft = JSON.parse(value || "{}");
+                      const target = decisionModels.find((m) => m.id === draft.model);
+                      if (target) {
+                        if (target.id !== selectedModel) setSelectedConnection("");
+                        setSelectedModel(target.id);
+                        setSelectedProvider(target.provider);
+                      }
+                    } catch {
+                      /* Incomplete JSON stays editable. */
+                    }
+                  }
+                }}
                 theme="vs-dark"
                 options={{
                   minimap: { enabled: false },
@@ -787,7 +986,17 @@ export default function ApiTab(_props: ApiTabProps) {
                 </button>
               </div>
             </div>
-            <div className="border border-border rounded-lg overflow-hidden">
+            {isDecisionsEndpoint && (
+              <output aria-label="Decision status" className="block text-xs break-words">
+                {responseStatus !== null
+                  ? `HTTP ${responseStatus} | ${responseDuration} ms | ${routeReceipt}`
+                  : "Select a provider and model, then Send. Nothing is sent automatically."}
+              </output>
+            )}
+            <div
+              className="border border-border rounded-lg overflow-hidden"
+              data-testid="api-response-editor"
+            >
               {audioUrl ? (
                 <div className="p-4 space-y-3">
                   <audio controls src={audioUrl} className="w-full rounded-lg" autoPlay />

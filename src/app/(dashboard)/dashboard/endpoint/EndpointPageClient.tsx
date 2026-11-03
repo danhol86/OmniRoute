@@ -1260,6 +1260,12 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
           <a href="#test" className="text-sm text-action font-medium hover:underline">
             {t("testEndpoint")}
           </a>
+          <a
+            href="/dashboard/endpoint/decisions"
+            className="text-sm text-action font-medium hover:underline"
+          >
+            Decisions
+          </a>
         </div>
         <div className="flex items-center gap-2 text-xs text-text-muted">
           <span>{t("advancedProtocols")}</span>

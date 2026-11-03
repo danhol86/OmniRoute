@@ -19,6 +19,12 @@ export interface EndpointCategory {
 
 export const ENDPOINT_CATEGORIES: readonly EndpointCategory[] = [
   {
+    id: "decisions",
+    label: "Decisions",
+    description: "Native OpenAI predicate, choice and score decisions",
+    prefixes: ["/v1/decisions"],
+  },
+  {
     id: "chat",
     label: "Chat / Messages",
     description: "Chat completions, text completions, messages, and responses",
