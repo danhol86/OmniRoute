@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const example = {
   model: "openai/gpt-6-luna",
@@ -28,12 +28,13 @@ const example = {
   ],
 };
 
-export default function DecisionsClient() {
+export default function DecisionsClient({ embedded = false }: { embedded?: boolean }) {
   const [key, setKey] = useState("");
   const [body, setBody] = useState(JSON.stringify(example, null, 2));
   const [result, setResult] = useState("");
   const [busy, setBusy] = useState(false);
   const controller = useRef<AbortController | null>(null);
+  useEffect(() => () => controller.current?.abort(), []);
 
   async function run() {
     setResult("");
@@ -77,10 +78,12 @@ export default function DecisionsClient() {
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-4xl flex-col gap-5">
-      <a href="/dashboard/endpoint" className="text-action hover:underline">
-        Back to endpoints
-      </a>
+    <section className="mx-auto flex w-full min-w-0 max-w-4xl flex-col gap-5">
+      {!embedded && (
+        <a href="/dashboard/endpoint" className="text-action hover:underline">
+          Back to endpoints
+        </a>
+      )}
       <h1 className="text-2xl font-bold">OpenAI Decisions</h1>
       <p className="text-text-muted">
         Ask predicate, choice and score questions using your existing OpenAI provider connection.
@@ -148,6 +151,6 @@ export default function DecisionsClient() {
       >
         {result || "The response will appear here."}
       </pre>
-    </main>
+    </section>
   );
 }

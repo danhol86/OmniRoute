@@ -11,10 +11,14 @@ include upstream PR #18838 or #18283, introduce a System One adapter, or modify 
 It uses an existing active **OpenAI API-key** connection in Providers. Codex OAuth
 is not an OpenAI API key and cannot serve this endpoint.
 
-Open **Endpoints -> OpenAI Decisions**, or `/dashboard/endpoint/decisions`.
+Open **Playground -> Decisions**, or `/dashboard/playground?tab=decisions`.
+The original **Endpoints -> OpenAI Decisions** page at `/dashboard/endpoint/decisions`
+also remains available. Both entry points use the same request editor and API.
 Paste an **OmniRoute client key**, leave the example in place and select **Run decision**.
 The example exercises all three question types in one real, billable call. The page
 does not save keys or requests to browser storage or run inference automatically.
+Chat-only configuration and export controls are hidden on the Decisions tab. Leaving
+the tab cancels the browser request; an upstream request may already have been processed.
 
 ```bash
 curl "$OMNIROUTE_URL/v1/decisions" \

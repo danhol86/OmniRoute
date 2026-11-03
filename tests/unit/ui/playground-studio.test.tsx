@@ -175,14 +175,15 @@ describe("PlaygroundStudio", () => {
     expect(el.children.length).toBeGreaterThan(0);
   });
 
-  it("renders all 4 tab buttons", () => {
+  it("renders all 5 tab buttons including Decisions", () => {
     const el = renderStudio();
     const tabButtons = el.querySelectorAll("[role='tab']");
-    expect(tabButtons.length).toBe(4);
+    expect(tabButtons.length).toBe(5);
 
     const textContents = Array.from(tabButtons).map((b) => b.textContent?.trim() ?? "");
     // Tab labels come from useTranslations mock — keys are returned as text
     expect(textContents.some((t) => t.includes("tabChat"))).toBe(true);
+    expect(textContents.some((t) => t.includes("Decisions"))).toBe(true);
     expect(textContents.some((t) => t.includes("tabCompare"))).toBe(true);
     expect(textContents.some((t) => t.includes("tabApi"))).toBe(true);
     expect(textContents.some((t) => t.includes("tabBuild"))).toBe(true);

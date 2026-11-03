@@ -15,6 +15,7 @@ import CompareTab from "./components/tabs/CompareTab";
 const ChatTab = dynamic(() => import("./components/tabs/ChatTab"), { ssr: false });
 const ApiTab = dynamic(() => import("./components/tabs/ApiTab"), { ssr: false });
 const BuildTab = dynamic(() => import("./components/tabs/BuildTab"), { ssr: false });
+const DecisionsTab = dynamic(() => import("../endpoint/decisions/DecisionsClient"), { ssr: false });
 
 const INITIAL_METRICS: StreamMetrics = {
   ttftMs: null,
@@ -34,7 +35,13 @@ const INITIAL_CONFIG: ConfigState = {
 };
 
 function resolveTab(value: string | null): StudioTab {
-  if (value === "chat" || value === "compare" || value === "api" || value === "build") {
+  if (
+    value === "chat" ||
+    value === "decisions" ||
+    value === "compare" ||
+    value === "api" ||
+    value === "build"
+  ) {
     return value;
   }
   return "chat";
@@ -42,7 +49,7 @@ function resolveTab(value: string | null): StudioTab {
 
 /**
  * PlaygroundStudio — orchestrator component for the Playground Studio.
- * - Manages active tab state (supports ?tab=chat|compare|api|build deep-link)
+ * - Manages active tab state (supports ?tab=chat|decisions|compare|api|build deep-link)
  * - Manages shared configState for all tabs
  * - Renders StudioTopBar + content + StudioConfigPane
  *
@@ -63,6 +70,9 @@ export function PlaygroundStudio() {
 
   function handleTabChange(tab: StudioTab) {
     setManualTab(tab);
+    const url = new URL(window.location.href);
+    url.searchParams.set("tab", tab);
+    window.history.replaceState(window.history.state, "", url);
   }
 
   function handleMetricsUpdate(m: StreamMetrics) {
@@ -86,20 +96,31 @@ export function PlaygroundStudio() {
       />
 
       {/* Main content area: tab content + config pane */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Tab content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1 overflow-hidden">
           {effectiveTab === "chat" && (
             <ChatTab configState={configState} onMetricsUpdate={handleMetricsUpdate} />
           )}
           {effectiveTab === "compare" && <CompareTab configState={configState} />}
           {effectiveTab === "api" && <ApiTab configState={configState} />}
           {effectiveTab === "build" && <BuildTab configState={configState} />}
+          {effectiveTab === "decisions" && (
+            <div
+              role="tabpanel"
+              aria-label="Decisions"
+              className="h-full overflow-y-auto p-4 sm:p-6"
+            >
+              <DecisionsTab embedded />
+            </div>
+          )}
         </div>
 
-        {/* Config pane — always visible, collapsible */}
+        {/* Decisions has its own native request editor, not chat settings. */}
         {/* SLOT_PRESETS and SLOT_IMPROVE are inside StudioConfigPane */}
-        <StudioConfigPane configState={configState} setConfigState={setConfigState} />
+        {effectiveTab !== "decisions" && (
+          <StudioConfigPane configState={configState} setConfigState={setConfigState} />
+        )}
       </div>
     </div>
   );

@@ -9,7 +9,7 @@ import ExportCodeModal from "./ExportCodeModal";
 import type { StreamMetrics } from "@/shared/schemas/playground";
 import type { PlaygroundState } from "@/lib/playground/codeExport";
 
-export type StudioTab = "chat" | "compare" | "api" | "build";
+export type StudioTab = "chat" | "decisions" | "compare" | "api" | "build";
 
 interface StudioTopBarProps {
   activeTab: StudioTab;
@@ -21,12 +21,14 @@ interface StudioTopBarProps {
 
 interface TabConfig {
   id: StudioTab;
-  labelKey: "tabChat" | "tabCompare" | "tabApi" | "tabBuild";
+  labelKey?: "tabChat" | "tabCompare" | "tabApi" | "tabBuild";
+  label?: string;
   icon: string;
 }
 
 const TABS: TabConfig[] = [
   { id: "chat", labelKey: "tabChat", icon: "chat" },
+  { id: "decisions", label: "Decisions", icon: "rule" },
   { id: "compare", labelKey: "tabCompare", icon: "compare" },
   { id: "api", labelKey: "tabApi", icon: "api" },
   { id: "build", labelKey: "tabBuild", icon: "build" },
@@ -36,18 +38,28 @@ const TABS: TabConfig[] = [
  * Top bar with tab switcher, token/cost counter, and export code button.
  * Export code modal uses ExportCodeModal (F7) when exportState is provided.
  */
-export default function StudioTopBar({ activeTab, onTabChange, metrics, exportState }: StudioTopBarProps) {
+export default function StudioTopBar({
+  activeTab,
+  onTabChange,
+  metrics,
+  exportState,
+}: StudioTopBarProps) {
   const t = useTranslations("playground");
   const [exportOpen, setExportOpen] = useState(false);
 
   return (
     <>
-      <div className="flex items-center justify-between px-4 py-2 border-b border-border bg-bg-alt shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 border-b border-border bg-bg-alt shrink-0">
         {/* Tabs */}
-        <div className="flex items-center gap-1" role="tablist">
+        <div
+          className="flex flex-wrap items-center gap-1"
+          role="tablist"
+          aria-label="Playground modes"
+        >
           {TABS.map((tab) => (
             <button
               key={tab.id}
+              type="button"
               role="tab"
               aria-selected={activeTab === tab.id}
               onClick={() => onTabChange(tab.id)}
@@ -57,37 +69,41 @@ export default function StudioTopBar({ activeTab, onTabChange, metrics, exportSt
                   : "text-text-muted hover:text-text-main hover:bg-black/5 dark:hover:bg-white/5"
               }`}
             >
-              <span className="material-symbols-outlined text-[16px]">{tab.icon}</span>
-              <span>{t(tab.labelKey)}</span>
+              <span aria-hidden="true" className="material-symbols-outlined text-[16px]">
+                {tab.icon}
+              </span>
+              <span>{tab.labelKey ? t(tab.labelKey) : tab.label}</span>
             </button>
           ))}
         </div>
 
         {/* Right side: token counter + export button */}
-        <div className="flex items-center gap-3">
-          <TokenCostCounter
-            tokensIn={metrics.tokensIn}
-            tokensOut={metrics.tokensOut}
-            costUsd={metrics.costUsd}
-          />
+        {activeTab !== "decisions" && (
+          <div className="flex items-center gap-3">
+            <TokenCostCounter
+              tokensIn={metrics.tokensIn}
+              tokensOut={metrics.tokensOut}
+              costUsd={metrics.costUsd}
+            />
 
-          <button
-            onClick={() => setExportOpen(true)}
-            className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border border-border hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-text-main transition-colors"
-            title={t("exportCode")}
-            aria-label={t("exportCode")}
-          >
-            <span className="font-mono text-[11px]">&lt;/&gt;</span>
-            <span>{t("exportShort")}</span>
-          </button>
-        </div>
+            <button
+              onClick={() => setExportOpen(true)}
+              className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border border-border hover:bg-black/5 dark:hover:bg-white/5 text-text-muted hover:text-text-main transition-colors"
+              title={t("exportCode")}
+              aria-label={t("exportCode")}
+            >
+              <span className="font-mono text-[11px]">&lt;/&gt;</span>
+              <span>{t("exportShort")}</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Export code modal — uses ExportCodeModal (F7) */}
-      {exportOpen && exportState != null && (
+      {activeTab !== "decisions" && exportOpen && exportState != null && (
         <ExportCodeModal state={exportState} onClose={() => setExportOpen(false)} />
       )}
-      {exportOpen && exportState == null && (
+      {activeTab !== "decisions" && exportOpen && exportState == null && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
           onClick={() => setExportOpen(false)}
@@ -106,9 +122,7 @@ export default function StudioTopBar({ activeTab, onTabChange, metrics, exportSt
                 <span className="material-symbols-outlined text-[18px]">close</span>
               </button>
             </div>
-            <p className="text-sm text-text-muted">
-              {t("noStateToExport")}
-            </p>
+            <p className="text-sm text-text-muted">{t("noStateToExport")}</p>
           </div>
         </div>
       )}
