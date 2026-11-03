@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { withDashboardCsrfHeader } from "@/shared/utils/dashboardCsrf";
 
 const example = {
   model: "openai/gpt-6-luna",
@@ -29,7 +30,6 @@ const example = {
 };
 
 export default function DecisionsClient({ embedded = false }: { embedded?: boolean }) {
-  const [key, setKey] = useState("");
   const [body, setBody] = useState(JSON.stringify(example, null, 2));
   const [result, setResult] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,9 +48,10 @@ export default function DecisionsClient({ embedded = false }: { embedded?: boole
     controller.current = new AbortController();
     const start = performance.now();
     try {
-      const response = await fetch("/v1/decisions", {
+      const response = await fetch("/api/playground/decisions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${key.trim()}` },
+        headers: await withDashboardCsrfHeader({ "Content-Type": "application/json" }),
+        credentials: "same-origin",
         body,
         signal: controller.current.signal,
         cache: "no-store",
@@ -90,21 +91,9 @@ export default function DecisionsClient({ embedded = false }: { embedded?: boole
         This does not change chat or combo routing.
       </p>
       <code className="rounded bg-card-subtle p-3">POST /v1/decisions</code>
-      <label className="flex flex-col gap-2 font-medium">
-        OmniRoute client API key
-        <input
-          type="password"
-          value={key}
-          onChange={(event) => setKey(event.target.value)}
-          autoComplete="off"
-          spellCheck={false}
-          placeholder="Paste an OmniRoute key, not your OpenAI key"
-          className="w-full rounded border border-border bg-card p-3 font-mono text-sm"
-        />
-      </label>
       <p className="text-sm text-text-muted">
-        Use a key from the API Keys page with access to Decisions and openai/gpt-6-luna. The key
-        stays in memory; it is not saved in browser storage.
+        Your signed-in session authorizes this Playground. No API key is needed here. External calls
+        to /v1/decisions still require an OmniRoute client API key.
       </p>
       <label className="flex flex-col gap-2 font-medium">
         Request JSON
@@ -123,7 +112,7 @@ export default function DecisionsClient({ embedded = false }: { embedded?: boole
       <div className="flex flex-wrap gap-3">
         <button
           onClick={run}
-          disabled={busy || !key.trim()}
+          disabled={busy}
           className="rounded bg-primary px-5 py-3 font-semibold text-white disabled:opacity-50"
         >
           {busy ? "Running..." : "Run decision"}

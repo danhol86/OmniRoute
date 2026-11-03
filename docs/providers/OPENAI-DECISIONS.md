@@ -13,8 +13,12 @@ is not an OpenAI API key and cannot serve this endpoint.
 
 Open **Playground -> Decisions**, or `/dashboard/playground?tab=decisions`.
 The original **Endpoints -> OpenAI Decisions** page at `/dashboard/endpoint/decisions`
-also remains available. Both entry points use the same request editor and API.
-Paste an **OmniRoute client key**, leave the example in place and select **Run decision**.
+also remains available. Both entry points use the same request editor.
+Sign in, leave the example in place and select **Run decision**. No key is needed in
+this UI: `/api/playground/decisions` requires a verified dashboard session and a
+session-bound CSRF token added automatically by the browser. Expired or revoked
+sessions are rejected. Provider credentials stay on the server; no client key is
+looked up, minted, stored, or exposed to the browser.
 The example exercises all three question types in one real, billable call. The page
 does not save keys or requests to browser storage or run inference automatically.
 Chat-only configuration and export controls are hidden on the Decisions tab. Leaving
@@ -33,14 +37,17 @@ request fields and successful answer/usage payloads pass through without transla
 OpenAI validates nested input, question and caching options. Refusals remain refusals.
 See the [official API reference](https://developers.openai.com/api/reference/resources/decisions/methods/create).
 
-Client-key model, endpoint, budget, token and connection restrictions still apply.
+The external `/v1/decisions` endpoint remains API-key-only; dashboard cookies do not
+substitute for its client key. Client-key model, endpoint, budget, token and connection restrictions still apply.
 Keys limited to chat do not gain Decisions access. Invalid or missing client keys get 401. No eligible OpenAI connection gets 503. Gateway requests are limited to 8 MiB,
 responses to 2 MiB, and upstream work to 30 seconds. Redirects and automatic retries
 are disabled. Upstream failures retain their HTTP status and Retry-After header but
 not their raw response body. Inputs and answers are not written to call logs by this
 extension; OpenAI's own retention policies still apply.
 
-Usage is attributed to the selected connection and client key. The budget estimate
+Usage is attributed to the selected connection and, for external calls, the client key.
+Dashboard calls are recorded separately at `/api/playground/decisions`; as with other
+administrator operations they do not borrow a client key or its budget. The budget estimate
 uses standard direct OpenAI Decisions input/cache rates, never an output-token charge;
 it is not a provider invoice or a hard concurrent-spend reservation. No provider
 credentials, schema migrations or extra environment variables are introduced.

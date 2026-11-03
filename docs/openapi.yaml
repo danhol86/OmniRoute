@@ -290,6 +290,52 @@ tags:
     description: Webhooks endpoints (generated route coverage)
 
 paths:
+  /api/playground/decisions:
+    post:
+      tags: [Playground]
+      summary: Run OpenAI Decisions using the signed-in dashboard session
+      description: |
+        Requires a valid dashboard session and a session-bound CSRF token from
+        /api/auth/csrf. Uses the saved OpenAI connection without exposing a provider
+        key or creating a client key. External clients must use /v1/decisions with
+        an OmniRoute API key instead. Request and response formats are identical.
+      security:
+        - ManagementSessionAuth: []
+      parameters:
+        - in: header
+          name: x-omniroute-csrf
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [model, input, questions]
+              properties:
+                model:
+                  type: string
+                  enum: [gpt-6-luna, openai/gpt-6-luna]
+                input: {}
+                questions:
+                  type: array
+                  minItems: 1
+                  maxItems: 400
+                  items:
+                    type: object
+      responses:
+        "200":
+          description: Native OpenAI decision answers and usage
+        "400":
+          description: Invalid decision request
+        "401":
+          description: Missing, invalid, expired or revoked dashboard session
+        "403":
+          description: Missing or invalid CSRF token, or cross-site request
+        "503":
+          description: No eligible OpenAI connection or service unavailable
   /v1/decisions:
     post:
       tags: [Responses]
