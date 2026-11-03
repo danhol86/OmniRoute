@@ -8,7 +8,7 @@ export function OPTIONS() {
     headers: {
       ...CORS_HEADERS,
       "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Authorization, Content-Type",
+      "Access-Control-Allow-Headers": "Authorization, Content-Type, X-OmniRoute-Connection",
     },
   });
 }

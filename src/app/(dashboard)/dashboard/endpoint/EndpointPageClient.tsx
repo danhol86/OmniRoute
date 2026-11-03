@@ -1264,7 +1264,7 @@ export default function APIPageClient({ machineId }: Readonly<APIPageClientProps
             href="/dashboard/endpoint/decisions"
             className="text-sm text-action font-medium hover:underline"
           >
-            OpenAI Decisions
+            Decisions
           </a>
         </div>
         <div className="flex items-center gap-2 text-xs text-text-muted">

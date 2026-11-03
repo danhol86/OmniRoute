@@ -66,12 +66,22 @@ export function PlaygroundStudio() {
   const effectiveTab = manualTab ?? activeTab;
 
   const [configState, setConfigState] = useState<ConfigState>(INITIAL_CONFIG);
+  const [apiEndpoint, setApiEndpoint] = useState(searchParams.get("endpoint") || "chat");
   const [metrics, setMetrics] = useState<StreamMetrics>(INITIAL_METRICS);
 
   function handleTabChange(tab: StudioTab) {
     setManualTab(tab);
+    if (tab === "decisions") setApiEndpoint("decisions");
     const url = new URL(window.location.href);
     url.searchParams.set("tab", tab);
+    window.history.replaceState(window.history.state, "", url);
+  }
+
+  function handleApiEndpointChange(endpoint: string) {
+    setApiEndpoint(endpoint);
+    if (effectiveTab === "decisions" && endpoint !== "decisions") handleTabChange("api");
+    const url = new URL(window.location.href);
+    url.searchParams.set("endpoint", endpoint);
     window.history.replaceState(window.history.state, "", url);
   }
 
@@ -103,7 +113,13 @@ export function PlaygroundStudio() {
             <ChatTab configState={configState} onMetricsUpdate={handleMetricsUpdate} />
           )}
           {effectiveTab === "compare" && <CompareTab configState={configState} />}
-          {effectiveTab === "api" && <ApiTab configState={configState} />}
+          {effectiveTab === "api" && (
+            <ApiTab
+              configState={configState}
+              initialEndpoint={apiEndpoint}
+              onEndpointChange={handleApiEndpointChange}
+            />
+          )}
           {effectiveTab === "build" && <BuildTab configState={configState} />}
           {effectiveTab === "decisions" && (
             <div
@@ -111,15 +127,19 @@ export function PlaygroundStudio() {
               aria-label="Decisions"
               className="h-full overflow-y-auto p-4 sm:p-6"
             >
-              <DecisionsTab embedded />
+              <DecisionsTab embedded onEndpointChange={handleApiEndpointChange} />
             </div>
           )}
         </div>
 
         {/* Decisions has its own native request editor, not chat settings. */}
         {/* SLOT_PRESETS and SLOT_IMPROVE are inside StudioConfigPane */}
-        {effectiveTab !== "decisions" && (
-          <StudioConfigPane configState={configState} setConfigState={setConfigState} />
+        {effectiveTab !== "decisions" && effectiveTab !== "api" && (
+          <StudioConfigPane
+            configState={configState}
+            setConfigState={setConfigState}
+            onSelectDecisions={() => handleTabChange("decisions")}
+          />
         )}
       </div>
     </div>

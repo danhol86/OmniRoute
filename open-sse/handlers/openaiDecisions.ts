@@ -7,7 +7,7 @@ import { readBoundedResponseText } from "../utils/emptyTurnRetry.ts";
 import { errorResponse } from "../utils/error.ts";
 import { CORS_HEADERS } from "../utils/cors.ts";
 
-// Deliberately native OpenAI only: no System One adapter, provider discovery or chat fallback.
+// Native Decisions transport: targets are resolved server-side from explicit capability metadata.
 export const OPENAI_DECISIONS_URL = "https://api.openai.com/v1/decisions";
 export const DECISIONS_BODY_LIMIT = 8 * 1024 * 1024;
 const instructions = z.union([
@@ -25,7 +25,11 @@ const question = z
 /** Validate admission; OpenAI remains authoritative for its evolving nested wire format. */
 export const openaiDecisionsSchema = z
   .object({
-    model: z.enum(["gpt-6-luna", "openai/gpt-6-luna"]),
+    model: z
+      .string()
+      .min(1)
+      .max(512)
+      .regex(/^[a-zA-Z0-9][a-zA-Z0-9._:/-]*$/),
     input: z.union([z.string(), z.array(z.record(z.string(), z.unknown())).min(1)]),
     questions: z.array(question).min(1).max(400),
   })
@@ -38,6 +42,7 @@ type ProxyOptions = {
   apiKey: string;
   signal?: AbortSignal;
   proxyConfig?: unknown;
+  target?: { url: string; model: string };
 };
 
 const usageSchema = z
@@ -92,10 +97,13 @@ export async function handleOpenAIDecisions(
   const signal = options.signal ? AbortSignal.any([options.signal, deadline]) : deadline;
   try {
     signal.throwIfAborted();
-    const upstream = await send(OPENAI_DECISIONS_URL, {
+    const upstream = await send(options.target?.url ?? OPENAI_DECISIONS_URL, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${options.apiKey}` },
-      body: JSON.stringify({ ...options.body, model: "gpt-6-luna" }),
+      body: JSON.stringify({
+        ...options.body,
+        model: options.target?.model ?? options.body.model.replace(/^openai\//, ""),
+      }),
       signal,
       timeoutMs: 30_000,
       guard: "public-only",
@@ -108,7 +116,7 @@ export async function handleOpenAIDecisions(
       const status = upstream.status >= 400 ? upstream.status : 502;
       const response = errorResponse(
         status,
-        `OpenAI Decisions returned HTTP ${upstream.status}. Check the OpenAI connection, model access and billing.`
+        `Decisions provider returned HTTP ${upstream.status}. Check the selected account, model access and billing.`
       );
       const retryAfter = upstream.headers.get("retry-after");
       if (retryAfter && retryAfter.length <= 128) response.headers.set("Retry-After", retryAfter);

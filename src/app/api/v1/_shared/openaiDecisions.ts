@@ -6,6 +6,7 @@ import {
 import { enforceApiKeyPolicy } from "@/shared/utils/apiKeyPolicy";
 import {
   resolveKeyConnectionScope,
+  narrowConnectionScope,
   isKeyScopeBlockedCredentials,
   keyScopeBlockedResponse,
 } from "@/sse/services/keyConnectionScope";
@@ -31,12 +32,15 @@ import { saveRequestUsage } from "@/lib/usage/usageHistory";
 import { recordCost } from "@/domain/costRules";
 import { recordKeyQuotaUsage } from "@/domain/keyQuota";
 import { recordTokenUsage } from "@omniroute/open-sse/services/tokenLimitCounter.ts";
+import { getDecisionTargets, canonicalDecisionModel } from "@/lib/playground/decisionCatalog";
+import { calculateCostDetailed } from "@/lib/usage/costCalculator";
 import { generateRequestId } from "@/shared/utils/requestId";
 
 /** Called only by the fixed API-key and dashboard route entry points; never request-selected. */
 export async function handleDecisionsRequest(
   request: Request,
-  mode: "api-key" | "dashboard-session"
+  mode: "api-key" | "dashboard-session",
+  dispatch = handleOpenAIDecisions
 ): Promise<Response> {
   const started = Date.now();
   try {
@@ -74,9 +78,17 @@ export async function handleDecisionsRequest(
     if (!parsed.success)
       return errorResponse(
         400,
-        "Use gpt-6-luna or openai/gpt-6-luna, input, and 1-400 predicate, choice or score questions with instructions"
+        "Select a configured Decisions model and provide input and 1-400 predicate, choice or score questions with instructions"
       );
-    const model = "openai/gpt-6-luna";
+    const model = canonicalDecisionModel(parsed.data.model);
+    const target = (await getDecisionTargets()).find((entry) => entry.id === model);
+    if (!target)
+      return errorResponse(
+        400,
+        "This model has no configured native Decisions route. Select a supported model; no fallback to OpenAI or chat is performed."
+      );
+    const provider = target.providerId;
+    const modelId = target.modelId;
     const policy =
       mode === "dashboard-session"
         ? { apiKey: null, apiKeyInfo: null, rejection: null }
@@ -85,17 +97,29 @@ export async function handleDecisionsRequest(
     if (policy.rejection) return policy.rejection;
     if (
       policy.apiKeyInfo?.forcedModel &&
-      ![model, "gpt-6-luna"].includes(policy.apiKeyInfo.forcedModel)
+      canonicalDecisionModel(policy.apiKeyInfo.forcedModel) !== model
     ) {
       return errorResponse(403, "This API key is pinned to a different model");
     }
     const scope = await resolveKeyConnectionScope(policy.apiKeyInfo);
     if (scope.rejection) return scope.rejection;
-    const credentials = await getProviderCredentialsWithQuotaPreflight(
-      "openai",
-      null,
+    const pin = request.headers.get("x-omniroute-connection")?.trim();
+    if (pin && !target.connections.some((connection) => connection.id === pin))
+      return errorResponse(403, "The selected account is not active for this Decisions provider.");
+    if (!target.connections.length)
+      return errorResponse(
+        503,
+        "No active OpenAI connection or compatible Decisions account is available for this model."
+      );
+    const allowed = narrowConnectionScope(
       scope.allowedConnections,
-      "gpt-6-luna"
+      pin ? [pin] : target.connections.map((connection) => connection.id)
+    );
+    const credentials = await getProviderCredentialsWithQuotaPreflight(
+      provider,
+      null,
+      allowed,
+      modelId
     );
     if (!credentials)
       return errorResponse(
@@ -103,9 +127,9 @@ export async function handleDecisionsRequest(
         "No active OpenAI connection. Add an OpenAI API key under Providers."
       );
     if (isKeyScopeBlockedCredentials(credentials))
-      return keyScopeBlockedResponse("openai", credentials);
+      return keyScopeBlockedResponse(provider, credentials);
     if (isAllRateLimitedCredentials(credentials))
-      return rateLimitedProviderResponse("openai", credentials);
+      return rateLimitedProviderResponse(provider, credentials);
     if (
       !("apiKey" in credentials) ||
       typeof credentials.apiKey !== "string" ||
@@ -114,27 +138,49 @@ export async function handleDecisionsRequest(
       typeof credentials.connectionId !== "string"
     )
       return errorResponse(503, "Decisions requires an OpenAI API-key connection, not Codex OAuth");
-    const proxyConfig = await resolveProxyForCredentials("openai", credentials);
-    const response = await handleOpenAIDecisions({
+    const proxyConfig = await resolveProxyForCredentials(provider, credentials);
+    if (provider !== "openai" && mode === "api-key") {
+      const pricing = await calculateCostDetailed(provider, modelId, {
+        input_tokens: 1,
+        output_tokens: 0,
+      });
+      if (!pricing.priced)
+        return errorResponse(
+          400,
+          "Configure pricing for this Decisions model before using client API keys."
+        );
+    }
+    const response = await dispatch({
       body: parsed.data,
+      target: { url: target.url, model: modelId },
       apiKey: credentials.apiKey,
       signal: request.signal,
       proxyConfig,
     });
     const requestId = generateRequestId();
     response.headers.set("X-OmniRoute-Request-Id", requestId);
-    response.headers.set("X-OmniRoute-Provider", "openai");
+    response.headers.set("X-OmniRoute-Provider", provider);
+    response.headers.set("X-OmniRoute-Connection-Id", credentials.connectionId);
+    response.headers.set("X-OmniRoute-Model", model);
     response.headers.set("Cache-Control", "no-store");
     const usage: DecisionUsage | undefined = response.ok
       ? (await response.clone().json()).usage
       : undefined;
-    const cost = usage ? decisionCost(usage) : undefined;
+    const price =
+      usage && provider !== "openai" ? await calculateCostDetailed(provider, modelId, usage) : null;
+    const cost = usage
+      ? provider === "openai"
+        ? decisionCost(usage)
+        : price?.priced
+          ? price.costUsd
+          : undefined
+      : undefined;
     const apiKeyId = policy.apiKeyInfo?.id;
     try {
       if (usage) {
         await saveRequestUsage({
-          provider: "openai",
-          model: "gpt-6-luna",
+          provider,
+          model: modelId,
           tokens: usage,
           success: true,
           connectionId: credentials.connectionId,
@@ -142,26 +188,29 @@ export async function handleDecisionsRequest(
           endpoint,
           latencyMs: Date.now() - started,
         });
-        if (apiKeyId) {
+        if (apiKeyId && cost !== undefined) {
           recordCost(apiKeyId, cost!, {
-            provider: "openai",
-            model: "gpt-6-luna",
+            provider,
+            model: modelId,
             tokens: usage,
             requestId,
             success: true,
           });
-          recordTokenUsage(apiKeyId, "openai", "gpt-6-luna", usage.total_tokens);
+          recordTokenUsage(apiKeyId, provider, modelId, usage.total_tokens);
         }
-        response.headers.set("X-OmniRoute-Cost", String(cost));
-        response.headers.set("X-OmniRoute-Cost-Status", "estimated");
+        if (cost !== undefined) response.headers.set("X-OmniRoute-Cost", String(cost));
+        response.headers.set(
+          "X-OmniRoute-Cost-Status",
+          cost === undefined ? "unpriced" : "estimated"
+        );
       }
       recordKeyQuotaUsage(apiKeyId, usage?.total_tokens ?? 0);
       await saveCallLog({
         method: "POST",
         path: endpoint,
         status: response.status,
-        model: "gpt-6-luna",
-        provider: "openai",
+        model: modelId,
+        provider,
         duration: Date.now() - started,
         connectionId: credentials.connectionId,
         apiKeyId,
@@ -177,7 +226,7 @@ export async function handleDecisionsRequest(
   } catch {
     return errorResponse(
       503,
-      "Decisions is temporarily unavailable. Check the OpenAI connection and server logs."
+      "Decisions is temporarily unavailable. Check the selected provider account and server logs."
     );
   }
 }

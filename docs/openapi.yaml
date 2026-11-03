@@ -290,6 +290,21 @@ tags:
     description: Webhooks endpoints (generated route coverage)
 
 paths:
+  /api/playground/decisions/models:
+    get:
+      operationId: listPlaygroundDecisionModels
+      summary: List configured native Decisions models and eligible saved accounts
+      tags: [Playground]
+      security:
+        - ManagementSessionAuth: []
+      responses:
+        "200":
+          description: Explicitly supported models with provider labels and account IDs, never credentials or upstream URLs.
+        "401":
+          description: A signed-in dashboard session is required.
+        "503":
+          description: The local model catalog could not be read.
+
   /api/playground/decisions:
     post:
       tags: [Playground]

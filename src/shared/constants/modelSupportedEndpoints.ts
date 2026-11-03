@@ -1,6 +1,7 @@
 export const MODEL_SUPPORTED_ENDPOINT_VALUES = [
   "chat",
   "responses",
+  "decisions",
   "embeddings",
   "rerank",
   "images",

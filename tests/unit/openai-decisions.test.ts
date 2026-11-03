@@ -172,10 +172,10 @@ test("transport errors cannot disclose secrets or stack", async () => {
   assert.doesNotMatch(await response.text(), /private|token|\/home|Error:/);
 });
 
-test("schema rejects missing/unsupported models and malformed questions", () => {
+test("schema rejects missing/malformed model ids and malformed questions", () => {
   assert.equal(openaiDecisionsSchema.safeParse(body).success, true);
   for (const invalid of [
-    { ...body, model: "codex/gpt-6-luna" },
+    { ...body, model: "https://arbitrary.example?secret=x" },
     { ...body, model: undefined },
     { ...body, questions: [] },
     { ...body, questions: Array(401).fill(body.questions[0]) },

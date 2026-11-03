@@ -78,7 +78,7 @@ export default function StudioTopBar({
         </div>
 
         {/* Right side: token counter + export button */}
-        {activeTab !== "decisions" && (
+        {activeTab !== "decisions" && activeTab !== "api" && (
           <div className="flex items-center gap-3">
             <TokenCostCounter
               tokensIn={metrics.tokensIn}
@@ -100,10 +100,10 @@ export default function StudioTopBar({
       </div>
 
       {/* Export code modal — uses ExportCodeModal (F7) */}
-      {activeTab !== "decisions" && exportOpen && exportState != null && (
+      {activeTab !== "decisions" && activeTab !== "api" && exportOpen && exportState != null && (
         <ExportCodeModal state={exportState} onClose={() => setExportOpen(false)} />
       )}
-      {activeTab !== "decisions" && exportOpen && exportState == null && (
+      {activeTab !== "decisions" && activeTab !== "api" && exportOpen && exportState == null && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
           onClick={() => setExportOpen(false)}

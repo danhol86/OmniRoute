@@ -115,13 +115,13 @@ test("public endpoint still rejects session-only calls, including with CSRF", as
 });
 test("Playground form uses session credentials with no API-key entry or browser bearer", () => {
   const source = fs.readFileSync(
-    "src/app/(dashboard)/dashboard/endpoint/decisions/DecisionsClient.tsx",
+    "src/app/(dashboard)/dashboard/playground/components/tabs/ApiTab.tsx",
     "utf8"
   );
-  assert.match(source, /fetch\("\/api\/playground\/decisions"/);
+  assert.match(source, /isDecisionsEndpoint \? "\/api\/playground\/decisions"/);
   assert.match(source, /withDashboardCsrfHeader/);
   assert.match(source, /credentials: "same-origin"/);
-  assert.doesNotMatch(source, /type="password"|setKey\(|Authorization:|Bearer \$\{/);
+  assert.doesNotMatch(source, /type="password"|setKey\(|fetchHeaders\.Authorization|Bearer \$\{/);
 });
 test("revoked sessions cannot run Playground requests", async () => {
   const { updateSettings } = await import("../../src/lib/db/settings.ts");

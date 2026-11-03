@@ -1,28 +1,26 @@
 ---
-title: "OpenAI Decisions"
+title: "Native Decisions"
 version: "3.8.52"
 lastUpdated: "2026-11-03"
 ---
 
-# OpenAI Decisions
+# Native Decisions
 
-This independent, OpenAI-only extension exposes `POST /v1/decisions`. It does not
-include upstream PR #18838 or #18283, introduce a System One adapter, or modify combos.
-It uses an existing active **OpenAI API-key** connection in Providers. Codex OAuth
-is not an OpenAI API key and cannot serve this endpoint.
+Use **Playground -> API -> Endpoint: Decisions**. The **Decisions** tab and the
+original `/dashboard/endpoint/decisions` URL open the same API editor with that
+endpoint preselected. Chat's configuration endpoint list also links to Decisions.
 
-Open **Playground -> Decisions**, or `/dashboard/playground?tab=decisions`.
-The original **Endpoints -> OpenAI Decisions** page at `/dashboard/endpoint/decisions`
-also remains available. Both entry points use the same request editor.
-Sign in, leave the example in place and select **Run decision**. No key is needed in
-this UI: `/api/playground/decisions` requires a verified dashboard session and a
-session-bound CSRF token added automatically by the browser. Expired or revoked
-sessions are rejected. Provider credentials stay on the server; no client key is
-looked up, minted, stored, or exposed to the browser.
-The example exercises all three question types in one real, billable call. The page
-does not save keys or requests to browser storage or run inference automatically.
-Chat-only configuration and export controls are hidden on the Decisions tab. Leaving
-the tab cancels the browser request; an upstream request may already have been processed.
+Select **Provider**, **Model**, then **Account** (or Auto for the selected provider).
+The list is loaded from saved configuration, not the unrelated chat model catalog.
+No provider is preselected for Decisions. Choosing a model updates only the model
+field in your JSON, preserving edited input, questions and native request options.
+The account selection is enforced server-side and never falls back to another
+provider. Unsupported models and invalid account selections are rejected.
+
+The signed-in session authorizes browser calls through `/api/playground/decisions`.
+No client key is entered, generated or sent by the browser. Session expiry,
+revocation, session-bound CSRF and cross-site protections remain enforced.
+External callers still use `POST /v1/decisions` with an OmniRoute client key:
 
 ```bash
 curl "$OMNIROUTE_URL/v1/decisions" \
@@ -31,23 +29,42 @@ curl "$OMNIROUTE_URL/v1/decisions" \
   -d '{"model":"openai/gpt-6-luna","input":"Please refund a duplicate charge.","questions":[{"type":"predicate","name":"refund","instructions":"Is a refund requested?"}]}'
 ```
 
-Both `gpt-6-luna` and `openai/gpt-6-luna` select the direct OpenAI connection.
-The provider prefix is removed before sending the request to OpenAI. Other native
-request fields and successful answer/usage payloads pass through without translation;
-OpenAI validates nested input, question and caching options. Refusals remain refusals.
-See the [official API reference](https://developers.openai.com/api/reference/resources/decisions/methods/create).
+`gpt-6-luna` remains an alias for `openai/gpt-6-luna`. The direct OpenAI route uses
+an existing active OpenAI API-key connection. Codex OAuth and chat models are not
+native Decisions providers. The upstream request uses the selected model rather
+than unconditionally rewriting it to Luna.
 
-The external `/v1/decisions` endpoint remains API-key-only; dashboard cookies do not
-substitute for its client key. Client-key model, endpoint, budget, token and connection restrictions still apply.
-Keys limited to chat do not gain Decisions access. Invalid or missing client keys get 401. No eligible OpenAI connection gets 503. Gateway requests are limited to 8 MiB,
-responses to 2 MiB, and upstream work to 30 seconds. Redirects and automatic retries
-are disabled. Upstream failures retain their HTTP status and Retry-After header but
-not their raw response body. Inputs and answers are not written to call logs by this
-extension; OpenAI's own retention policies still apply.
+## Additional native-compatible providers
 
-Usage is attributed to the selected connection and, for external calls, the client key.
-Dashboard calls are recorded separately at `/api/playground/decisions`; as with other
-administrator operations they do not borrow a client key or its budget. The budget estimate
-uses standard direct OpenAI Decisions input/cache rates, never an output-token charge;
-it is not a provider invoice or a hard concurrent-spend reservation. No provider
-credentials, schema migrations or extra environment variables are introduced.
+A saved OpenAI-compatible provider node may participate when its custom model is
+explicitly marked with the `decisions` supported-endpoint tag in the model's
+endpoint-capability editor. The upstream must actually implement the native
+OpenAI Decisions request/answer schema. A chat-compatible label alone is not proof
+of that support. Models without an explicit trusted Decisions tag are not listed.
+Use the node's configured prefix in the public model ID, for example
+`my-native-provider/vendor/model`. It is resolved through saved node configuration,
+never a client-supplied upstream URL. Only HTTPS upstream bases are admitted;
+public-only outbound URL/DNS checks block private and metadata destinations.
+No redirects, retries or chat/System One emulation are performed.
+
+Optional `X-OmniRoute-Connection: <saved-account-id>` pins a compatible active
+account. It is intersected with client-key connection/quota permissions, not used
+to override them. Responses include `X-OmniRoute-Provider`, `X-OmniRoute-Model` and
+`X-OmniRoute-Connection-Id` to identify the resolved route without exposing keys.
+
+## Limits and accounting
+
+Existing client-key endpoint/model/budget/quota restrictions remain enforced.
+Missing or invalid external keys get 401; session cookies do not replace them.
+Requests are bounded to 8 MiB, responses to 2 MiB and upstream work to 30 seconds.
+The form sends nothing automatically. Request/response JSON is not persisted by
+this extension. Provider-side retention policies still apply.
+
+The direct OpenAI route retains its input/cache-rate estimate and no output charge.
+Other native-compatible routes use their configured model pricing; unknown costs
+are labelled unpriced, never given OpenAI's rate. Client-key requests to such a
+route require configured pricing before dispatch. Session-mode usage is attributed
+to the selected provider account, not an unrelated client key.
+
+Neither rejected upstream PR is included. This feature does not alter chat or
+combo routing, and does not make arbitrary models compatible with Decisions.
