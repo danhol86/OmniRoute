@@ -1,0 +1,39 @@
+# Native Dokploy deployment; set runtime values in Dokploy Environment.
+# Restore the external volumes before the first deployment.
+services:
+  omniroute:
+    image: repodok-desktop/omniroute-omniroute:main
+    mem_limit: 2g
+    memswap_limit: 3g
+    environment:
+      CREDENTIAL_GATE_AUTH_DIAGNOSES_ONLY: ${CREDENTIAL_GATE_AUTH_DIAGNOSES_ONLY}
+      OMNIROUTE_DISABLE_CREDENTIAL_HEALTH_CHECK: ${OMNIROUTE_DISABLE_CREDENTIAL_HEALTH_CHECK}
+    ports:
+    - target: 20128
+      published: '20128'
+      host_ip: 0.0.0.0
+      protocol: tcp
+    volumes:
+    - type: volume
+      source: omniroute-data
+      target: /app/data
+      read_only: false
+    restart: unless-stopped
+    build:
+      context: .
+      dockerfile: Dockerfile.dokploy
+      target: runner-base
+      args:
+        OMNIROUTE_BUILD_MEMORY_MB: '4096'
+        OMNIROUTE_BUILD_WORKERS: '1'
+    networks:
+      default: {}
+      dokploy-network: {}
+volumes:
+  omniroute-data:
+    external: true
+    name: repodok-omniroute-omniroute-data
+networks:
+  dokploy-network:
+    external: true
+  default: {}
